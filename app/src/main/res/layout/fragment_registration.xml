@@ -37,13 +37,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="25dp"
-                android:text="Мужчина" />
+                android:text="Мужчина"
+                android:buttonTint="@color/my_primary" />
 
             <RadioButton
                 android:id="@+id/rbFemale"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Женщина" />
+                android:text="Женщина"
+                android:buttonTint="@color/my_primary" />
+
         </RadioGroup>
 
         <TextView
@@ -127,5 +130,7 @@
             android:lineSpacingMultiplier="1.2"
             android:gravity="center"
             android:visibility="gone"/>
+
+
     </LinearLayout>
 </ScrollView>
