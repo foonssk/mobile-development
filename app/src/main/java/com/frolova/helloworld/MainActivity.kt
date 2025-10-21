@@ -22,10 +22,11 @@ class MainActivity : FragmentActivity() {
             GameFragment(),
             RulesFragment(),
             AuthorsFragment(),
-            SettingsFragment()
+            SettingsFragment(),
+            RecordsFragment() // ← новая вкладка
         )
 
-        val titles = listOf("Регистрация", "Игра", "Правила", "Авторы", "Настройки")
+        val titles = listOf("Регистрация", "Игра", "Правила", "Авторы", "Настройки", "Рекорды")
 
         viewPager.adapter = object : FragmentStateAdapter(this) {
             override fun getItemCount(): Int = fragments.size

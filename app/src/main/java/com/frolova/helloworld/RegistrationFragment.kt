@@ -8,10 +8,19 @@ import android.widget.*
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import java.util.Calendar
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.flow.collect
+import android.widget.ArrayAdapter
+import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 
 class RegistrationFragment : Fragment() {
 
-    private val viewModel: GameViewModel by activityViewModels()
+    private val viewModel: GameViewModel by activityViewModels(
+        factoryProducer = { ViewModelProvider.AndroidViewModelFactory(requireActivity().application) }
+    )
     private var selectedDate: Long = Calendar.getInstance().timeInMillis
 
     override fun onCreateView(
@@ -35,12 +44,12 @@ class RegistrationFragment : Fragment() {
         val ivZodiacSign = view.findViewById<ImageView>(R.id.ivZodiacSign)
         val btnRegister = view.findViewById<Button>(R.id.btnRegister)
         val tvResult = view.findViewById<TextView>(R.id.tvResult)
+        val spinnerExistingPlayers = view.findViewById<Spinner>(R.id.spinnerExistingPlayers)
 
-        selectedDate = cvCalendar.date
-        updateZodiacDisplay(selectedDate, ivZodiacSign, tvZodiacSign)
-
+        // Адаптер курсов
         spinnerCourse.adapter = setSpinnerCourse()
 
+        // SeekBar сложности
         sbGameDifficulty.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 tvGameDifficulty.text = "Уровень сложности: $progress"
@@ -49,6 +58,9 @@ class RegistrationFragment : Fragment() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
+        // Календарь
+        selectedDate = cvCalendar.date
+        updateZodiacDisplay(selectedDate, ivZodiacSign, tvZodiacSign)
         cvCalendar.setOnDateChangeListener { _, year, month, dayOfMonth ->
             val cal = Calendar.getInstance()
             cal.set(year, month, dayOfMonth)
@@ -56,8 +68,70 @@ class RegistrationFragment : Fragment() {
             updateZodiacDisplay(selectedDate, ivZodiacSign, tvZodiacSign)
         }
 
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.getAllPlayers().collect { players ->
+                    val playerNames = players.map { it.fullName }
+                    val items = listOf(getString(R.string.new_player)) + playerNames
+
+                    val adapter = ArrayAdapter(
+                        requireContext(),
+                        android.R.layout.simple_spinner_item,
+                        items
+                    )
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    spinnerExistingPlayers.adapter = adapter
+
+                    spinnerExistingPlayers.onItemSelectedListener =
+                        object : AdapterView.OnItemSelectedListener {
+                            override fun onItemSelected(
+                                parent: AdapterView<*>,
+                                view: View?,
+                                position: Int,
+                                id: Long
+                            ) {
+                                if (position == 0) {
+                                    // Новый игрок — показываем форму
+                                    etFullName.setText("")
+                                    etFullName.isEnabled = true
+                                    rgGender.clearCheck()
+                                    spinnerCourse.setSelection(0)
+                                    sbGameDifficulty.progress = 1
+                                    cvCalendar.date = System.currentTimeMillis()
+                                    tvResult.visibility = View.GONE
+                                } else {
+                                    // Выбран существующий игрок
+                                    val player = players[position - 1]
+                                    viewModel.currentPlayer = player
+                                    viewModel.playerDifficulty = player.difficulty
+
+                                    etFullName.setText(player.fullName)
+                                    etFullName.isEnabled = false
+
+                                    val info = """
+                                Выбран игрок: ${player.fullName}
+                                Уровень сложности: ${player.difficulty}/10
+                            """.trimIndent()
+                                    tvResult.text = info
+                                    tvResult.visibility = View.VISIBLE
+                                }
+                            }
+
+                            override fun onNothingSelected(parent: AdapterView<*>?) {}
+                        }
+                }
+            }
+        }
+
+        // Регистрация нового игрока
         btnRegister.setOnClickListener {
-            val fullName = etFullName.text.toString()
+            val fullName = etFullName.text.toString().trim()
+            if (fullName.isEmpty()) {
+                etFullName.error = "Введите ФИО"
+                return@setOnClickListener
+            }
+
             val gender = when (rgGender.checkedRadioButtonId) {
                 R.id.rbMale -> "Мужчина"
                 R.id.rbFemale -> "Женщина"
@@ -67,18 +141,28 @@ class RegistrationFragment : Fragment() {
             val difficulty = sbGameDifficulty.progress.coerceIn(1, 10)
             val zodiacSign = getZodiacSign(selectedDate)
 
+            val playerEntity = PlayerEntity(
+                fullName = fullName,
+                gender = gender,
+                course = course,
+                birthDate = selectedDate,
+                zodiacSign = zodiacSign.first,
+                difficulty = difficulty
+            )
+
+            viewModel.savePlayer(playerEntity)
             viewModel.playerDifficulty = difficulty
 
-            val settings = Settings(1, 10, 5, 60)
-
-            val player = createPlayer(fullName, gender, course, difficulty, selectedDate, zodiacSign.first)
-            val info = formatPlayerInfo(player, settings)
+            val info = formatPlayerInfo(
+                Player(fullName, gender, course, difficulty, selectedDate, zodiacSign.first),
+                Settings(1, 10, 5, 60)
+            )
             tvResult.text = info
             tvResult.visibility = View.VISIBLE
         }
     }
 
-    // Все твои методы остаются здесь — они теперь видны!
+
     private fun getZodiacSign(dateMillis: Long): Pair<String, String> {
         val calendar = Calendar.getInstance().apply { timeInMillis = dateMillis }
         val day = calendar.get(Calendar.DAY_OF_MONTH)

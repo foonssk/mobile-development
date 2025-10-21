@@ -9,6 +9,12 @@
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:padding="15dp">
+        <Spinner
+            android:id="@+id/spinnerExistingPlayers"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="10dp"
+            android:prompt="@string/select_player" />
 
         <EditText
             android:id="@+id/etFullName"

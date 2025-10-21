@@ -11,10 +11,13 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import kotlinx.coroutines.*
 import java.util.Random
+import androidx.lifecycle.ViewModelProvider
 
 class GameFragment : Fragment() {
 
-    private val viewModel: GameViewModel by activityViewModels()
+    private val viewModel: GameViewModel by activityViewModels(
+        factoryProducer = { ViewModelProvider.AndroidViewModelFactory(requireActivity().application) }
+    )
     private var score = 0
     private var misses = 0
     private var gameActive = false
@@ -186,7 +189,7 @@ class GameFragment : Fragment() {
         }
     }
 
-    // ✅ Убрано увеличение misses и штрафа!
+
     private fun removeInsect(insect: View) {
         if (gameArea.isAttachedToWindow && insect.parent == gameArea) {
             gameArea.removeView(insect)
@@ -211,6 +214,9 @@ class GameFragment : Fragment() {
         insects.clear()
         scope?.cancel()
         scope = null
+
+        //  Сохраняем результат в БД
+        viewModel.saveScore(score, misses)
 
         val resultText = TextView(requireContext()).apply {
             text = "Игра окончена!\nОчки: $score\nПромахи: $misses"
