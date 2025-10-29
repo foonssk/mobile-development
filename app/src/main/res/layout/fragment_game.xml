@@ -34,4 +34,17 @@
         android:textColor="@android:color/white"
         android:textSize="18sp" />
 
+    <TextView
+        android:id="@+id/tiltIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|top"
+        android:layout_marginTop="60dp"
+        android:visibility="gone"
+        android:text="Управление наклоном активно!"
+        android:textColor="@color/green"
+        android:textSize="16sp"
+        android:background="@color/black_transparent"
+        android:padding="8dp" />
+
 </LinearLayout>

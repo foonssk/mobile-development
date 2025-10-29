@@ -1,5 +1,10 @@
 package com.frolova.helloworld
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -13,7 +18,7 @@ import kotlinx.coroutines.*
 import java.util.Random
 import androidx.lifecycle.ViewModelProvider
 
-class GameFragment : Fragment() {
+class GameFragment : Fragment(), SensorEventListener {
 
     private val viewModel: GameViewModel by activityViewModels(
         factoryProducer = { ViewModelProvider.AndroidViewModelFactory(requireActivity().application) }
@@ -22,14 +27,23 @@ class GameFragment : Fragment() {
     private var misses = 0
     private var gameActive = false
     private val insects = mutableListOf<View>()
+    private val bonuses = mutableListOf<View>()
     private val random = Random()
     private var scope: CoroutineScope? = null
 
+    // Акселерометр
+    private lateinit var sensorManager: SensorManager
+    private var accelerometer: Sensor? = null
+    private var tiltControlActive = false
+    private var tiltControlEndTime = 0L
+
     data class InsectType(val drawableRes: Int, val points: Int)
+    data class BonusType(val drawableRes: Int, val duration: Long)
 
     private lateinit var gameArea: FrameLayout
     private lateinit var scoreText: TextView
     private lateinit var startButton: TextView
+    private lateinit var tiltIndicator: TextView
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -41,6 +55,11 @@ class GameFragment : Fragment() {
         gameArea = root.findViewById(R.id.gameArea)
         scoreText = root.findViewById(R.id.scoreText)
         startButton = root.findViewById(R.id.startButton)
+        tiltIndicator = root.findViewById(R.id.tiltIndicator) // Добавьте этот TextView в layout
+
+        // Инициализация акселерометра
+        sensorManager = requireContext().getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
         // Промах = только клик по фону, когда есть насекомые
         gameArea.setOnClickListener {
@@ -66,10 +85,13 @@ class GameFragment : Fragment() {
         gameActive = true
         score = 0
         misses = 0
+        tiltControlActive = false
         scoreText.text = "Очки: $score | Промахи: $misses"
+        tiltIndicator.visibility = View.GONE
         startButton.visibility = View.GONE
         gameArea.removeAllViews()
         insects.clear()
+        bonuses.clear()
 
         val difficulty = viewModel.playerDifficulty.coerceIn(1, 10).toFloat() / 10f
 
@@ -82,12 +104,33 @@ class GameFragment : Fragment() {
             if (gameActive) endGame()
         }
 
+        // Запуск спауна насекомых
         scope?.launch {
             while (gameActive) {
                 if (insects.size < effectiveMaxInsects) {
                     spawnInsect(effectiveSpeed)
                 }
                 delay((1000 / effectiveSpeed.toLong()).coerceAtLeast(100))
+            }
+        }
+
+        // Запуск спауна бонусов каждые 15 секунд
+        scope?.launch {
+            while (gameActive) {
+                delay(15000) // Каждые 15 секунд
+                if (gameActive && bonuses.isEmpty()) {
+                    spawnBonus()
+                }
+            }
+        }
+
+        // Запуск проверки времени действия бонуса
+        scope?.launch {
+            while (gameActive) {
+                delay(1000)
+                if (tiltControlActive && System.currentTimeMillis() > tiltControlEndTime) {
+                    deactivateTiltControl()
+                }
             }
         }
     }
@@ -137,6 +180,13 @@ class GameFragment : Fragment() {
                 var dy = (random.nextFloat() - 0.5f) * baseSpeed * 2
 
                 while (insects.contains(insect) && gameActive) {
+                    // Если активно управление наклоном, используем акселерометр
+                    if (tiltControlActive) {
+                        // Движение будет обработано в onSensorChanged
+                        delay(50)
+                        continue
+                    }
+
                     x += dx
                     y += dy
 
@@ -164,7 +214,6 @@ class GameFragment : Fragment() {
                     delay(50)
                 }
 
-                // Удаляем насекомое, если оно ещё в списке
                 if (insects.contains(insect)) {
                     removeInsect(insect)
                 }
@@ -189,13 +238,124 @@ class GameFragment : Fragment() {
         }
     }
 
+    private fun spawnBonus() {
+        val bonusType = BonusType(R.drawable.ic_bonus_tilt, 10000L) // 10 секунд
+
+        val bonus = ImageView(requireContext()).apply {
+            setImageResource(bonusType.drawableRes)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+
+        val size = dpToPx(50)
+        val params = ViewGroup.LayoutParams(size, size)
+        bonus.layoutParams = params
+
+        gameArea.post {
+            if (!gameActive) return@post
+
+            val maxWidth = gameArea.width - size
+            val maxHeight = gameArea.height - size
+            if (maxWidth <= 0 || maxHeight <= 0) return@post
+
+            val startX = random.nextInt(maxWidth.coerceAtLeast(1)).toFloat()
+            val startY = random.nextInt(maxHeight.coerceAtLeast(1)).toFloat()
+
+            bonus.x = startX
+            bonus.y = startY
+
+            gameArea.addView(bonus)
+            bonuses.add(bonus)
+            bonus.setTag(R.id.bonus_type, bonusType)
+
+            // Автоматическое исчезновение бонуса через 5 секунд
+            scope?.launch {
+                delay(5000)
+                if (bonuses.contains(bonus)) {
+                    removeBonus(bonus)
+                }
+            }
+
+            bonus.setOnClickListener {
+                if (bonuses.contains(bonus)) {
+                    gameArea.removeView(bonus)
+                    bonuses.remove(bonus)
+                    activateTiltControl(bonusType.duration)
+                    score += 20 // Бонусные очки
+                    scoreText.text = "Очки: $score | Промахи: $misses"
+                }
+            }
+        }
+    }
+
+    private fun activateTiltControl(duration: Long) {
+        tiltControlActive = true
+        tiltControlEndTime = System.currentTimeMillis() + duration
+
+        // Регистрируем слушатель акселерометра
+        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+
+        // Показываем индикатор
+        tiltIndicator.visibility = View.VISIBLE
+        tiltIndicator.text = "Управление наклоном активно!"
+
+        scope?.launch {
+            // Таймер обратного отсчета
+            var timeLeft = duration / 1000
+            while (timeLeft > 0 && tiltControlActive) {
+                tiltIndicator.text = "Управление наклоном: ${timeLeft}с"
+                delay(1000)
+                timeLeft--
+            }
+        }
+    }
+
+    private fun deactivateTiltControl() {
+        tiltControlActive = false
+        sensorManager.unregisterListener(this)
+        tiltIndicator.visibility = View.GONE
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (!tiltControlActive || event?.sensor?.type != Sensor.TYPE_ACCELEROMETER) return
+
+        val x = event.values[0]
+        val y = event.values[1]
+
+        // Применяем наклон ко всем насекомым
+        insects.forEach { insect ->
+            val speed = 15f // Скорость движения при наклоне
+
+            var newX = insect.x - x * speed
+            var newY = insect.y + y * speed // Инвертируем Y для естественного движения
+
+            // Ограничиваем границы экрана
+            val maxWidth = gameArea.width - insect.width
+            val maxHeight = gameArea.height - insect.height
+
+            newX = newX.coerceIn(0f, maxWidth.toFloat())
+            newY = newY.coerceIn(0f, maxHeight.toFloat())
+
+            insect.x = newX
+            insect.y = newY
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        // Не используется
+    }
 
     private fun removeInsect(insect: View) {
         if (gameArea.isAttachedToWindow && insect.parent == gameArea) {
             gameArea.removeView(insect)
         }
         insects.remove(insect)
-        // Никакого штрафа — просто исчезает
+    }
+
+    private fun removeBonus(bonus: View) {
+        if (gameArea.isAttachedToWindow && bonus.parent == gameArea) {
+            gameArea.removeView(bonus)
+        }
+        bonuses.remove(bonus)
     }
 
     private fun checkGameOver() {
@@ -206,16 +366,26 @@ class GameFragment : Fragment() {
 
     private fun endGame() {
         gameActive = false
+        deactivateTiltControl()
+
         insects.forEach {
             if (it.parent == gameArea) {
                 gameArea.removeView(it)
             }
         }
         insects.clear()
+
+        bonuses.forEach {
+            if (it.parent == gameArea) {
+                gameArea.removeView(it)
+            }
+        }
+        bonuses.clear()
+
         scope?.cancel()
         scope = null
 
-        //  Сохраняем результат в БД
+        // Сохраняем результат в БД
         viewModel.saveScore(score, misses)
 
         val resultText = TextView(requireContext()).apply {
@@ -230,8 +400,25 @@ class GameFragment : Fragment() {
         startButton.visibility = View.VISIBLE
     }
 
+    override fun onPause() {
+        super.onPause()
+        if (tiltControlActive) {
+            sensorManager.unregisterListener(this)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (tiltControlActive) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         scope?.cancel()
+        if (tiltControlActive) {
+            sensorManager.unregisterListener(this)
+        }
     }
 }
