@@ -10,13 +10,22 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
-import kotlinx.coroutines.*
-import java.util.Random
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Random
 
 class GameFragment : Fragment(), SensorEventListener {
 
@@ -29,7 +38,8 @@ class GameFragment : Fragment(), SensorEventListener {
     private val insects = mutableListOf<View>()
     private val bonuses = mutableListOf<View>()
     private val random = Random()
-    private var scope: CoroutineScope? = null
+    private var gameScope: CoroutineScope? = null // ПЕРЕИМЕНОВАЛИ
+    private var gameJob: Job? = null // ДОБАВИЛИ Job для управления корутинами
 
     // Акселерометр
     private lateinit var sensorManager: SensorManager
@@ -44,6 +54,9 @@ class GameFragment : Fragment(), SensorEventListener {
     private lateinit var scoreText: TextView
     private lateinit var startButton: TextView
     private lateinit var tiltIndicator: TextView
+    private lateinit var goldRateWidget: LinearLayout
+    private lateinit var goldRateText: TextView
+    private lateinit var closeWidgetButton: ImageButton
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -55,11 +68,38 @@ class GameFragment : Fragment(), SensorEventListener {
         gameArea = root.findViewById(R.id.gameArea)
         scoreText = root.findViewById(R.id.scoreText)
         startButton = root.findViewById(R.id.startButton)
-        tiltIndicator = root.findViewById(R.id.tiltIndicator) // Добавьте этот TextView в layout
+        tiltIndicator = root.findViewById(R.id.tiltIndicator)
+
+        // Инициализация виджета золота
+        goldRateWidget = root.findViewById(R.id.goldRateWidget)
+        goldRateText = root.findViewById(R.id.goldRateText)
+        closeWidgetButton = root.findViewById(R.id.closeWidgetButton)
 
         // Инициализация акселерометра
         sensorManager = requireContext().getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+        // Обработчик закрытия виджета
+        closeWidgetButton.setOnClickListener {
+            viewModel.toggleWidget()
+        }
+
+        // Наблюдение за видимостью виджета
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.widgetVisible.collect { visible ->
+                goldRateWidget.visibility = if (visible) View.VISIBLE else View.GONE
+            }
+        }
+
+        // Наблюдение за курсом золота
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.goldRate.collect { goldRate ->
+                goldRate?.let {
+                    // Обновляем виджет
+                    goldRateText.text = "Золото\n${it.getShortFormattedValue()} руб/кг"
+                }
+            }
+        }
 
         // Промах = только клик по фону, когда есть насекомые
         gameArea.setOnClickListener {
@@ -79,8 +119,9 @@ class GameFragment : Fragment(), SensorEventListener {
     }
 
     private fun startNewGame() {
-        scope?.cancel()
-        scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+        gameJob?.cancel() // Отменяем предыдущую работу
+        gameJob = Job()
+        gameScope = CoroutineScope(Dispatchers.Main + gameJob!!)
 
         gameActive = true
         score = 0
@@ -99,14 +140,14 @@ class GameFragment : Fragment(), SensorEventListener {
         val effectiveMaxInsects = (viewModel.settings.maxInsects * (1 + difficulty)).toInt().coerceAtLeast(1)
         val effectiveRoundDuration = (viewModel.settings.roundDuration * (1 - difficulty * 0.5)).toInt().coerceAtLeast(10)
 
-        scope?.launch {
+        gameScope?.launch {
             delay(effectiveRoundDuration * 1000L)
             if (gameActive) endGame()
         }
 
         // Запуск спауна насекомых
-        scope?.launch {
-            while (gameActive) {
+        gameScope?.launch {
+            while (isActive && gameActive) {
                 if (insects.size < effectiveMaxInsects) {
                     spawnInsect(effectiveSpeed)
                 }
@@ -115,22 +156,185 @@ class GameFragment : Fragment(), SensorEventListener {
         }
 
         // Запуск спауна бонусов каждые 15 секунд
-        scope?.launch {
-            while (gameActive) {
-                delay(15000) // Каждые 15 секунд
+        gameScope?.launch {
+            while (isActive && gameActive) {
+                delay(15000)
                 if (gameActive && bonuses.isEmpty()) {
                     spawnBonus()
                 }
             }
         }
 
+        // Запуск спауна золотого таракана каждые 20 секунд
+        gameScope?.launch {
+            while (isActive && gameActive) {
+                delay(20000)
+                if (gameActive) {
+                    spawnGoldenCockroach()
+                }
+            }
+        }
+
         // Запуск проверки времени действия бонуса
-        scope?.launch {
-            while (gameActive) {
+        gameScope?.launch {
+            while (isActive && gameActive) {
                 delay(1000)
                 if (tiltControlActive && System.currentTimeMillis() > tiltControlEndTime) {
                     deactivateTiltControl()
                 }
+            }
+        }
+    }
+
+    // метод для золотого шара
+    private fun spawnGoldenCockroach() {
+        val goldRate = viewModel.getCurrentGoldRate()
+        val points = goldRate.getPointsValue()
+
+        showBonusMessage("Золотой шар!\n+${points} очков\n(курс: ${goldRate.getShortFormattedValue()} руб/кг)")
+
+        val goldenCockroach = ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_golden_cockroach)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+
+        val size = dpToPx(70)
+        val params = ViewGroup.LayoutParams(size, size)
+        goldenCockroach.layoutParams = params
+
+        gameArea.post {
+            if (!gameActive) return@post
+
+            val maxWidth = gameArea.width - size
+            val maxHeight = gameArea.height - size
+            if (maxWidth <= 0 || maxHeight <= 0) return@post
+
+            val startX = random.nextInt(maxWidth.coerceAtLeast(1)).toFloat()
+            val startY = random.nextInt(maxHeight.coerceAtLeast(1)).toFloat()
+
+            goldenCockroach.x = startX
+            goldenCockroach.y = startY
+
+            gameArea.addView(goldenCockroach)
+            insects.add(goldenCockroach)
+            goldenCockroach.setTag(R.id.insect_type, InsectType(R.drawable.ic_golden_cockroach, points))
+
+            gameScope?.launch {
+                var x = startX
+                var y = startY
+                val baseSpeed = 2
+                var dx = (random.nextFloat() - 0.5f) * baseSpeed * 2
+                var dy = (random.nextFloat() - 0.5f) * baseSpeed * 2
+
+                while (insects.contains(goldenCockroach) && isActive && gameActive) {
+                    if (tiltControlActive) {
+                        delay(50)
+                        continue
+                    }
+
+                    x += dx
+                    y += dy
+
+                    if (x <= 0f) {
+                        x = 0f
+                        dx = -dx
+                    } else if (x >= maxWidth) {
+                        x = maxWidth.toFloat()
+                        dx = -dx
+                    }
+
+                    if (y <= 0f) {
+                        y = 0f
+                        dy = -dy
+                    } else if (y >= maxHeight) {
+                        y = maxHeight.toFloat()
+                        dy = -dy
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        goldenCockroach.x = x
+                        goldenCockroach.y = y
+                    }
+
+                    delay(50)
+                }
+
+                if (insects.contains(goldenCockroach)) {
+                    removeInsect(goldenCockroach)
+                }
+            }
+
+            gameScope?.launch {
+                delay(7000)
+                if (insects.contains(goldenCockroach)) {
+                    removeInsect(goldenCockroach)
+                }
+            }
+
+            goldenCockroach.setOnClickListener {
+                if (insects.contains(goldenCockroach)) {
+                    gameArea.removeView(goldenCockroach)
+                    insects.remove(goldenCockroach)
+                    val type = goldenCockroach.getTag(R.id.insect_type) as InsectType
+                    score += type.points
+                    scoreText.text = "Очки: $score | Промахи: $misses"
+
+                    showBonusMessage("+${type.points} очков за золото!")
+                }
+            }
+        }
+    }
+
+    private fun showBonusMessage(message: String) {
+        val context = requireContext()
+
+        val notificationView = TextView(context).apply {
+            text = message
+            textSize = 18f
+            setTextColor(context.getColor(android.R.color.white))
+            setBackgroundResource(R.drawable.bonus_notification_background)
+            gravity = android.view.Gravity.CENTER
+            setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+
+            // Позиционируем внизу экрана
+            val layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+                bottomMargin = dpToPx(100)
+            }
+            this.layoutParams = layoutParams
+        }
+
+        // Добавляем на игровое поле
+        gameArea.addView(notificationView)
+
+        // Анимация появления
+        notificationView.alpha = 0f
+        notificationView.translationY = dpToPx(50).toFloat()
+
+        notificationView.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(300)
+            .start()
+
+        // Автоматическое исчезновение через 2 секунды
+        gameScope?.launch {
+            delay(2000)
+
+            withContext(Dispatchers.Main) {
+                notificationView.animate()
+                    .alpha(0f)
+                    .translationY(dpToPx(50).toFloat())
+                    .setDuration(300)
+                    .withEndAction {
+                        if (gameArea.isAttachedToWindow && notificationView.parent == gameArea) {
+                            gameArea.removeView(notificationView)
+                        }
+                    }
+                    .start()
             }
         }
     }
@@ -172,17 +376,15 @@ class GameFragment : Fragment(), SensorEventListener {
             insects.add(insect)
             insect.setTag(R.id.insect_type, chosenType)
 
-            scope?.launch {
+            gameScope?.launch {
                 var x = startX
                 var y = startY
                 val baseSpeed = 3 + gameSpeed * 2
                 var dx = (random.nextFloat() - 0.5f) * baseSpeed * 2
                 var dy = (random.nextFloat() - 0.5f) * baseSpeed * 2
 
-                while (insects.contains(insect) && gameActive) {
-                    // Если активно управление наклоном, используем акселерометр
+                while (insects.contains(insect) && isActive && gameActive) {
                     if (tiltControlActive) {
-                        // Движение будет обработано в onSensorChanged
                         delay(50)
                         continue
                     }
@@ -219,7 +421,7 @@ class GameFragment : Fragment(), SensorEventListener {
                 }
             }
 
-            scope?.launch {
+            gameScope?.launch {
                 delay(5000)
                 if (insects.contains(insect)) {
                     removeInsect(insect)
@@ -239,7 +441,7 @@ class GameFragment : Fragment(), SensorEventListener {
     }
 
     private fun spawnBonus() {
-        val bonusType = BonusType(R.drawable.ic_bonus_tilt, 10000L) // 10 секунд
+        val bonusType = BonusType(R.drawable.ic_bonus_tilt, 10000L)
 
         val bonus = ImageView(requireContext()).apply {
             setImageResource(bonusType.drawableRes)
@@ -267,8 +469,7 @@ class GameFragment : Fragment(), SensorEventListener {
             bonuses.add(bonus)
             bonus.setTag(R.id.bonus_type, bonusType)
 
-            // Автоматическое исчезновение бонуса через 5 секунд
-            scope?.launch {
+            gameScope?.launch {
                 delay(5000)
                 if (bonuses.contains(bonus)) {
                     removeBonus(bonus)
@@ -280,7 +481,7 @@ class GameFragment : Fragment(), SensorEventListener {
                     gameArea.removeView(bonus)
                     bonuses.remove(bonus)
                     activateTiltControl(bonusType.duration)
-                    score += 20 // Бонусные очки
+                    score += 20
                     scoreText.text = "Очки: $score | Промахи: $misses"
                 }
             }
@@ -290,18 +491,13 @@ class GameFragment : Fragment(), SensorEventListener {
     private fun activateTiltControl(duration: Long) {
         tiltControlActive = true
         tiltControlEndTime = System.currentTimeMillis() + duration
-
-        // Регистрируем слушатель акселерометра
         sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)
-
-        // Показываем индикатор
         tiltIndicator.visibility = View.VISIBLE
         tiltIndicator.text = "Управление наклоном активно!"
 
-        scope?.launch {
-            // Таймер обратного отсчета
+        gameScope?.launch {
             var timeLeft = duration / 1000
-            while (timeLeft > 0 && tiltControlActive) {
+            while (timeLeft > 0 && isActive && tiltControlActive) {
                 tiltIndicator.text = "Управление наклоном: ${timeLeft}с"
                 delay(1000)
                 timeLeft--
@@ -321,14 +517,12 @@ class GameFragment : Fragment(), SensorEventListener {
         val x = event.values[0]
         val y = event.values[1]
 
-        // Применяем наклон ко всем насекомым
         insects.forEach { insect ->
-            val speed = 15f // Скорость движения при наклоне
+            val speed = 15f
 
             var newX = insect.x - x * speed
-            var newY = insect.y + y * speed // Инвертируем Y для естественного движения
+            var newY = insect.y + y * speed
 
-            // Ограничиваем границы экрана
             val maxWidth = gameArea.width - insect.width
             val maxHeight = gameArea.height - insect.height
 
@@ -340,9 +534,7 @@ class GameFragment : Fragment(), SensorEventListener {
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Не используется
-    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun removeInsect(insect: View) {
         if (gameArea.isAttachedToWindow && insect.parent == gameArea) {
@@ -382,10 +574,10 @@ class GameFragment : Fragment(), SensorEventListener {
         }
         bonuses.clear()
 
-        scope?.cancel()
-        scope = null
+        gameJob?.cancel() // ИСПРАВИЛИ
+        gameJob = null
+        gameScope = null
 
-        // Сохраняем результат в БД
         viewModel.saveScore(score, misses)
 
         val resultText = TextView(requireContext()).apply {
@@ -412,11 +604,12 @@ class GameFragment : Fragment(), SensorEventListener {
         if (tiltControlActive) {
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)
         }
+        viewModel.loadGoldRate()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        scope?.cancel()
+        gameJob?.cancel() // ИСПРАВИЛИ
         if (tiltControlActive) {
             sensorManager.unregisterListener(this)
         }
