@@ -7,11 +7,11 @@ import android.view.ViewGroup
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class SettingsFragment : Fragment() {
 
-    private val viewModel: GameViewModel by activityViewModels()
+    private val viewModel: GameViewModel by viewModel()
 
     override fun onCreateView(
         inflater: LayoutInflater,

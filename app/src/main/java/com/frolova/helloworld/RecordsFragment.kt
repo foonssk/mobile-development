@@ -6,19 +6,16 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import androidx.lifecycle.ViewModelProvider
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class RecordsFragment : Fragment() {
 
-    private val viewModel: GameViewModel by activityViewModels(
-        factoryProducer = { ViewModelProvider.AndroidViewModelFactory(requireActivity().application) }
-    )
+    private val viewModel: GameViewModel by viewModel()
 
     override fun onCreateView(
         inflater: LayoutInflater,

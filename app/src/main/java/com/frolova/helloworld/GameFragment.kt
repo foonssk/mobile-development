@@ -15,8 +15,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,14 +22,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import org.koin.androidx.viewmodel.ext.android.viewModel
 import java.util.Random
 
 class GameFragment : Fragment(), SensorEventListener {
 
-    private val viewModel: GameViewModel by activityViewModels(
-        factoryProducer = { ViewModelProvider.AndroidViewModelFactory(requireActivity().application) }
-    )
+    private val viewModel: GameViewModel by viewModel()
 
     private var score = 0
     private var misses = 0

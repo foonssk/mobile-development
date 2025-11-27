@@ -6,21 +6,18 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
-import java.util.Calendar
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collect
 import android.widget.ArrayAdapter
 import kotlinx.coroutines.launch
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import org.koin.androidx.viewmodel.ext.android.viewModel
+import java.util.Calendar
 
 class RegistrationFragment : Fragment() {
 
-    private val viewModel: GameViewModel by activityViewModels(
-        factoryProducer = { ViewModelProvider.AndroidViewModelFactory(requireActivity().application) }
-    )
+    private val viewModel: GameViewModel by viewModel()
     private var selectedDate: Long = Calendar.getInstance().timeInMillis
 
     override fun onCreateView(
