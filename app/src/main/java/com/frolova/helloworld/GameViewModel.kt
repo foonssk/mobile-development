@@ -1,5 +1,6 @@
 package com.frolova.helloworld
 
+import android.content.Context
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,13 +13,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val scoreDao = database.scoreDao()
     private val goldRateService = CbrApiService(application)
 
+    // Используем SharedPreferences для сохранения настроек
+    private val sharedPreferences = application.getSharedPreferences("game_prefs", Context.MODE_PRIVATE)
+
+    // Загружаем настройки при инициализации
     var settings = Settings(
-        gameSpeed = 1,
-        maxInsects = 10,
-        bonusInterval = 5,
-        roundDuration = 60
+        gameSpeed = sharedPreferences.getInt("game_speed", 1),
+        maxInsects = sharedPreferences.getInt("max_insects", 10),
+        bonusInterval = sharedPreferences.getInt("bonus_interval", 5),
+        roundDuration = sharedPreferences.getInt("round_duration", 60)
     )
-    var playerDifficulty = 1
+
+    var playerDifficulty = sharedPreferences.getInt("player_difficulty", 1)
     var currentPlayer: PlayerEntity? = null
 
     // Новое состояние для курса золота
@@ -31,6 +37,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadGoldRate()
+    }
+
+    // Сохраняем настройки при изменении
+    fun saveSettings() {
+        with(sharedPreferences.edit()) {
+            putInt("game_speed", settings.gameSpeed)
+            putInt("max_insects", settings.maxInsects)
+            putInt("bonus_interval", settings.bonusInterval)
+            putInt("round_duration", settings.roundDuration)
+            putInt("player_difficulty", playerDifficulty)
+            apply()
+        }
     }
 
     fun loadGoldRate() {
@@ -57,6 +75,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             scoreDao.insertPlayer(player)
             currentPlayer = player
+            // Сохраняем сложность игрока
+            playerDifficulty = player.difficulty
+            saveSettings()
         }
     }
 

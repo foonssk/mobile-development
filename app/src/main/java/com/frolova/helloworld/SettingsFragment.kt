@@ -31,6 +31,7 @@ class SettingsFragment : Fragment() {
                 val newProgress = progress.coerceAtLeast(1)
                 viewModel.settings = viewModel.settings.copy(gameSpeed = newProgress)
                 tvSpeed.text = "Скорость игры: $newProgress"
+                viewModel.saveSettings() // Сохраняем настройки
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -47,12 +48,13 @@ class SettingsFragment : Fragment() {
                 val newProgress = progress.coerceAtLeast(1)
                 viewModel.settings = viewModel.settings.copy(maxInsects = newProgress)
                 tvMaxCockroaches.text = "Максимальное количество тараканов: $newProgress"
+                viewModel.saveSettings() // Сохраняем настройки
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // Интервал появления бонусов (пока не используется, но сохраняем)
+        // Интервал появления бонусов
         val sbBonusInterval = view.findViewById<SeekBar>(R.id.sbBonusInterval)
         val tvBonusInterval = view.findViewById<TextView>(R.id.tvBonusInterval)
         sbBonusInterval.max = 30
@@ -63,6 +65,7 @@ class SettingsFragment : Fragment() {
                 val newProgress = progress.coerceAtLeast(1)
                 viewModel.settings = viewModel.settings.copy(bonusInterval = newProgress)
                 tvBonusInterval.text = "Интервал появления бонусов: $newProgress сек"
+                viewModel.saveSettings() // Сохраняем настройки
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -79,6 +82,7 @@ class SettingsFragment : Fragment() {
                 val newProgress = progress.coerceAtLeast(10)
                 viewModel.settings = viewModel.settings.copy(roundDuration = newProgress)
                 tvRoundDuration.text = "Длительность раунда: $newProgress сек"
+                viewModel.saveSettings() // Сохраняем настройки
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}

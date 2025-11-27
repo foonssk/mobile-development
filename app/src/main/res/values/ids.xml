@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="insect_type" type="id" />
+    <item name="insect_data" type="id" />
     <item name="bonus_type" type="id"/>
+    <item name="bonus_data" type="id" />
 </resources>
